@@ -1,7 +1,14 @@
 {
-  "functions": {
-    "app.py": {
-      "runtime": "python3.12"
+  "builds": [
+    {
+      "src": "failover.py",
+      "use": "@vercel/python"
     }
-  }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "failover.py"
+    }
+  ]
 }
