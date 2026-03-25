@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from twilio.request_validator import RequestValidator
 import os
 
+# Updated for Vercel deploy
+
 app = FastAPI()
 DB_PATH = "failover.db"
 validator = RequestValidator(os.environ.get('TWILIO_AUTH_TOKEN', ''))
