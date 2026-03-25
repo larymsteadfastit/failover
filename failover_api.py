@@ -1,45 +1,43 @@
-from fastapi import FastAPI, Request, HTTPException
-from pydantic import BaseModel
-import sqlite3
 import json
+import os
+import sqlite3
 from datetime import datetime, timedelta
 from twilio.request_validator import RequestValidator
-import os
-
-# Updated for Vercel deploy
+from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel
+from typing import Dict
 
 app = FastAPI()
-DB_PATH = "failover.db"
-validator = RequestValidator(os.environ.get('TWILIO_AUTH_TOKEN', ''))
-
 
 class FailoverData(BaseModel):
     ticketId: str
     callSid: str
-    data: dict
+    data: Dict
 
+DB_PATH = "/tmp/failover.db"  # Vercel writable tmp
+validator = RequestValidator(os.environ.get('TWILIO_AUTH_TOKEN', ''))
 
 @app.post("/")
 async def store_data(data: FailoverData, request: Request):
-    # Twilio validation (add headers check)
-    if not os.environ.get('TWILIO_AUTH_TOKEN'):
-        raise HTTPException(403, "No auth")
-
-    # Store with TTL check
+    # Twilio validation
+    if os.environ.get('TWILIO_AUTH_TOKEN'):
+        twilio_sig = request.headers.get('x-twilio-signature', '')
+        if not validator.validate(request.url.path, request.query_params, twilio_sig):
+            raise HTTPException(403, "Invalid signature")
+    
     conn = sqlite3.connect(DB_PATH)
-    expires = (datetime.utcnow() + timedelta(hours=24)).timestamp()
     conn.execute("CREATE TABLE IF NOT EXISTS data (ticketId TEXT PRIMARY KEY, callSid TEXT, data TEXT, expires REAL)")
-    conn.execute("INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?)",
-                 (data.ticketId, data.callSid, json.dumps(data.data), expires))
+    expires = (datetime.utcnow() + timedelta(hours=24)).timestamp()
+    conn.execute("INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?)", 
+                 (data.ticketId, data.callSid, json.dumps(data.dict()['data']), expires))
     conn.commit()
     conn.close()
     return {"status": "stored"}
 
-
 @app.get("/{ticket_id}")
 async def get_data(ticket_id: str):
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.execute("SELECT data FROM data WHERE ticketId=? AND expires > ?",
+    cur = conn.execute("SELECT data FROM data WHERE ticketId=? AND expires > ?", 
                        (ticket_id, datetime.utcnow().timestamp()))
     row = cur.fetchone()
     if row:
